@@ -21,6 +21,10 @@ Usage:  `./install.sh`  **[OPTIONS...]**
 -notint, --notint       Disable Follow ColorSheme for folders on KDE Plasma
 -h, --help              Show help
 ```
+
+The default KDE install now places the theme directly in `~/.local/share/icons` as:
+`Colloid`, `Colloid-Light`, and `Colloid-Dark`.
+
 > For example: install teal nord version -> run: `./install.sh -s nord -t teal`
 
 > For more information, run: `./install.sh -h`

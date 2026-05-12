@@ -5,12 +5,22 @@ set -eo pipefail
 ROOT_UID=0
 DEST_DIR=
 
+resolve_default_dest_dir() {
+  local user_home="${HOME}"
+
+  if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != 'root' ]]; then
+    user_home="$(getent passwd "${SUDO_USER}" | cut -d: -f6)"
+  fi
+
+  if [[ -n "${XDG_DATA_HOME:-}" && "$UID" -ne "$ROOT_UID" ]]; then
+    printf '%s/icons\n' "${XDG_DATA_HOME}"
+  else
+    printf '%s/.local/share/icons\n' "${user_home}"
+  fi
+}
+
 # Destination directory
-if [ "$UID" -eq "$ROOT_UID" ]; then
-  DEST_DIR="/usr/share/icons"
-else
-  DEST_DIR="$HOME/.local/share/icons"
-fi
+DEST_DIR="$(resolve_default_dest_dir)"
 
 SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -37,6 +47,54 @@ cat << EOF
     -r, --remove, -u, --uninstall   Remove/Uninstall $THEME_NAME icon themes
     -h, --help              Show help
 EOF
+}
+
+link_base_theme_dirs() {
+  local dest=${1}
+  local name=${2}
+  local theme=${3}
+  local scheme=${4}
+
+  (
+    cd "${dest}"
+    rm -f "${name}${theme}${scheme}"/{apps,actions,devices,emblems,places,categories,mimetypes,status}
+    ln -sf ../"${name}${theme}${scheme}"-Light/apps "${name}${theme}${scheme}"/apps
+    ln -sf ../"${name}${theme}${scheme}"-Light/actions "${name}${theme}${scheme}"/actions
+    ln -sf ../"${name}${theme}${scheme}"-Light/devices "${name}${theme}${scheme}"/devices
+    ln -sf ../"${name}${theme}${scheme}"-Light/emblems "${name}${theme}${scheme}"/emblems
+    ln -sf ../"${name}${theme}${scheme}"-Light/places "${name}${theme}${scheme}"/places
+    ln -sf ../"${name}${theme}${scheme}"-Light/categories "${name}${theme}${scheme}"/categories
+    ln -sf ../"${name}${theme}${scheme}"-Light/mimetypes "${name}${theme}${scheme}"/mimetypes
+    ln -sf ../"${name}${theme}${scheme}"-Dark/status "${name}${theme}${scheme}"/status
+  )
+}
+
+install_reference_theme() {
+  local dest=${1}
+  local name=${2}
+  local variant=
+  local source_dir=
+  local target_dir=
+
+  mkdir -p "${dest}"
+
+  for variant in '' '-Light' '-Dark'; do
+    source_dir="${SRC_DIR}/colloid-kde/${THEME_NAME}${variant}"
+    target_dir="${dest}/${name}${variant}"
+
+    [[ -d "${target_dir}" ]] && rm -rf "${target_dir}"
+
+    echo "Installing '${target_dir}'..."
+
+    cp -a "${source_dir}" "${target_dir}"
+    sed -i "s/^Name=.*/Name=${name}${variant}/" "${target_dir}/index.theme"
+  done
+
+  link_base_theme_dirs "${dest}" "${name}" '' ''
+
+  for variant in '' '-Light' '-Dark'; do
+    gtk-update-icon-cache "${dest}/${name}${variant}"
+  done
 }
 
 install() {
@@ -119,15 +177,7 @@ install() {
   fi
 
   if [[ "${color}" == '' ]]; then
-    cd ${dest}
-    ln -sf ../"${name}${theme}${scheme}"-Light/apps "${name}${theme}${scheme}"/apps
-    ln -sf ../"${name}${theme}${scheme}"-Light/actions "${name}${theme}${scheme}"/actions
-    ln -sf ../"${name}${theme}${scheme}"-Light/devices "${name}${theme}${scheme}"/devices
-    ln -sf ../"${name}${theme}${scheme}"-Light/emblems "${name}${theme}${scheme}"/emblems
-    ln -sf ../"${name}${theme}${scheme}"-Light/places "${name}${theme}${scheme}"/places
-    ln -sf ../"${name}${theme}${scheme}"-Light/categories "${name}${theme}${scheme}"/categories
-    ln -sf ../"${name}${theme}${scheme}"-Light/mimetypes "${name}${theme}${scheme}"/mimetypes
-    ln -sf ../"${name}${theme}${scheme}"-Dark/status "${name}${theme}${scheme}"/status
+    link_base_theme_dirs "${dest}" "${name}" "${theme}" "${scheme}"
   fi
 
   (
@@ -515,10 +565,13 @@ clean_old_theme() {
 }
 
 remove_theme() {
+  local target_dest="${dest:-${DEST_DIR}}"
+  local target_name="${name:-${THEME_NAME}}"
+
   for theme in "${THEME_VARIANTS[@]}"; do
     for scheme in "${SCHEME_VARIANTS[@]}"; do
       for color in "${COLOR_VARIANTS[@]}"; do
-        local THEME_DIR="${DEST_DIR}/${THEME_NAME}${theme}${scheme}${color}"
+        local THEME_DIR="${target_dest}/${target_name}${theme}${scheme}${color}"
         [[ -d "$THEME_DIR" ]] && echo -e "Removing $THEME_DIR ..." && rm -rf "$THEME_DIR"
       done
     done
@@ -526,10 +579,20 @@ remove_theme() {
 }
 
 install_theme() {
+  local target_dest="${dest:-${DEST_DIR}}"
+  local target_name="${name:-${THEME_NAME}}"
+
+  if [[ "${#themes[@]}" -eq 1 && "${themes[0]}" == '' &&
+        "${#schemes[@]}" -eq 1 && "${schemes[0]}" == '' &&
+        "${bold:-}" != 'true' && "${notint:-}" != 'true' ]]; then
+    install_reference_theme "${target_dest}" "${target_name}"
+    return
+  fi
+
   for theme in "${themes[@]}"; do
     for scheme in "${schemes[@]}"; do
       for color in "${colors[@]}"; do
-        install "${dest:-${DEST_DIR}}" "${name:-${THEME_NAME}}" "${theme}" "${scheme}" "${color}"
+        install "${target_dest}" "${target_name}" "${theme}" "${scheme}" "${color}"
       done
     done
   done
@@ -544,5 +607,3 @@ else
 fi
 
 echo -e "\nFinished!\n"
-
-
